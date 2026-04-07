@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #0a0a0c;
+  --color-card: #111114;
+  --color-border: #222228;
+  --color-accent: #c8553a;
+  --color-muted: #777774;
+  --color-rating: #d4a843;
+  --font-display: 'Playfair Display', serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-body: 'Source Sans 3', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--color-bg);
+  color: #e8e8e4;
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-muted);
+}
+
+/* Swiper lightbox overrides */
+.lightbox-swiper .swiper-button-next,
+.lightbox-swiper .swiper-button-prev {
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(0, 0, 0, 0.4);
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  backdrop-filter: blur(4px);
+}
+
+.lightbox-swiper .swiper-button-next::after,
+.lightbox-swiper .swiper-button-prev::after {
+  font-size: 18px;
+}
+
+.lightbox-swiper .swiper-button-next:hover,
+.lightbox-swiper .swiper-button-prev:hover {
+  color: white;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+@media (max-width: 768px) {
+  .lightbox-swiper .swiper-button-next,
+  .lightbox-swiper .swiper-button-prev {
+    display: none;
+  }
+}
