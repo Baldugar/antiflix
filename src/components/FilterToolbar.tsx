@@ -7,6 +7,7 @@ interface FilterToolbarProps {
   onFilterChange: (filters: Partial<FilterState>) => void;
   onSurprise: () => void;
   onImport: () => void;
+  onReshuffle: () => void;
   resultCount: number;
 }
 
@@ -28,6 +29,7 @@ export default function FilterToolbar({
   onFilterChange,
   onSurprise,
   onImport,
+  onReshuffle,
   resultCount,
 }: FilterToolbarProps) {
   return (
@@ -109,14 +111,24 @@ export default function FilterToolbar({
           ))}
         </select>
 
-        <button
-          onClick={() =>
-            onFilterChange({ sortDir: filters.sortDir === 'asc' ? 'desc' : 'asc' })
-          }
-          className="font-mono text-sm text-muted hover:text-accent px-1"
-        >
-          {filters.sortDir === 'asc' ? '↑' : '↓'}
-        </button>
+        {filters.sort === 'random' ? (
+          <button
+            onClick={onReshuffle}
+            className="font-mono text-sm text-muted hover:text-accent px-1"
+            title="Reordenar aleatoriamente"
+          >
+            🔀
+          </button>
+        ) : (
+          <button
+            onClick={() =>
+              onFilterChange({ sortDir: filters.sortDir === 'asc' ? 'desc' : 'asc' })
+            }
+            className="font-mono text-sm text-muted hover:text-accent px-1"
+          >
+            {filters.sortDir === 'asc' ? '↑' : '↓'}
+          </button>
+        )}
       </div>
 
       {/* Result count */}

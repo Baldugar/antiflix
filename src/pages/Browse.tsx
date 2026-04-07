@@ -452,6 +452,7 @@ export default function Browse({
           onFilterChange={handleFilterChange}
           onSurprise={() => setShowSurprise(true)}
           onImport={() => setShowImport(true)}
+          onReshuffle={() => setRandomSeed(Date.now())}
           resultCount={filtered.length}
         />
 
