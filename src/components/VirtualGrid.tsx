@@ -13,8 +13,8 @@ interface VirtualGridProps {
 }
 
 const GAP = 16;
-const COL_MIN_WIDTH = 160;
-const ROW_HEIGHT = 480;
+const COL_MIN_WIDTH = 250;
+const ROW_HEIGHT = 520;
 
 export default function VirtualGrid({
   titles,
@@ -36,7 +36,7 @@ export default function VirtualGrid({
     const update = () => {
       const w = el.clientWidth;
       setContainerWidth(w);
-      setColumns(Math.max(2, Math.floor((w + GAP) / (COL_MIN_WIDTH + GAP))));
+      setColumns(Math.min(5, Math.max(2, Math.floor((w + GAP) / (COL_MIN_WIDTH + GAP)))));
     };
 
     update();
