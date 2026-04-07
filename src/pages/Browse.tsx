@@ -395,7 +395,7 @@ export default function Browse({
         done={keywordsLoaded}
       />
 
-      <div>
+      <div className="overflow-x-hidden">
         <input
           type="text"
           value={filters.search}

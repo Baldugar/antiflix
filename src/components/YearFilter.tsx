@@ -16,7 +16,7 @@ export default function YearFilter({ min, max, absMin, absMax, onChange }: YearF
       <span className="font-mono text-xs text-muted whitespace-nowrap">
         {min} — {max}
       </span>
-      <div className="relative flex-1 h-6 flex items-center min-w-[300px]">
+      <div className="relative flex-1 h-6 flex items-center min-w-0">
         <div className="absolute inset-x-0 h-2 bg-border rounded-full" />
         <div
           className="absolute h-2 bg-accent/60 rounded-full"
