@@ -20,6 +20,24 @@ const STATUS_BG: Record<WatchStatus, string> = {
   ignored: 'bg-gray-600/90',
 };
 
+const STATUS_BORDER: Record<WatchStatus, string> = {
+  none: 'border-border',
+  pending: 'border-blue-500/50',
+  watching: 'border-green-500/50',
+  finished: 'border-accent/50',
+  dropped: 'border-red-500/50',
+  ignored: 'border-gray-600/50',
+};
+
+const STATUS_SELECT: Record<WatchStatus, string> = {
+  none: 'border-border text-muted',
+  pending: 'border-blue-500/60 text-blue-400',
+  watching: 'border-green-500/60 text-green-400',
+  finished: 'border-accent/60 text-accent',
+  dropped: 'border-red-500/60 text-red-400',
+  ignored: 'border-gray-600/60 text-muted/50',
+};
+
 export default function PosterCard({
   title,
   genres,
@@ -39,7 +57,7 @@ export default function PosterCard({
 
   return (
     <div
-      className={`bg-card rounded-lg overflow-hidden border border-border transition-all duration-200 hover:-translate-y-1 hover:border-accent hover:shadow-lg hover:shadow-accent/10${
+      className={`bg-card rounded-lg overflow-hidden border ${STATUS_BORDER[status]} transition-all duration-200 hover:-translate-y-1 hover:border-accent hover:shadow-lg hover:shadow-accent/10${
         dimmed ? ' opacity-45' : ''
       }${ignored ? ' opacity-30' : ''}`}
     >
@@ -127,11 +145,7 @@ export default function PosterCard({
         <select
           value={status}
           onChange={(e) => onSetStatus(title.id, e.target.value as WatchStatus)}
-          className={`w-full text-xs font-mono py-1.5 rounded border mt-2 bg-card transition-colors cursor-pointer ${
-            status === 'none'
-              ? 'border-border text-muted'
-              : `border-current ${WATCH_STATUS_LABELS[status].color}`
-          }`}
+          className={`w-full text-xs font-mono py-1.5 rounded border mt-2 bg-card transition-colors cursor-pointer ${STATUS_SELECT[status]}`}
         >
           <option value="none">— No vista</option>
           <option value="pending">📋 Pendiente</option>

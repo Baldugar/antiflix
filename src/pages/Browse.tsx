@@ -404,6 +404,27 @@ export default function Browse({
           className="w-full bg-bg border border-border rounded-lg px-4 py-3 text-sm font-body text-white placeholder-muted focus:outline-none focus:border-accent mt-4"
         />
 
+        {/* Status stats */}
+        <div className="flex flex-wrap gap-x-4 gap-y-1 py-2 text-[11px] font-mono">
+          <span className="text-muted">{catalog.length} títulos</span>
+          <span className="text-muted/50">·</span>
+          {(() => {
+            const counts = { pending: 0, watching: 0, finished: 0, dropped: 0, ignored: 0 };
+            for (const s of watchMap.values()) {
+              if (s in counts) counts[s as keyof typeof counts]++;
+            }
+            return (
+              <>
+                <span className="text-blue-400">{counts.pending} pendientes</span>
+                <span className="text-green-400">{counts.watching} viendo</span>
+                <span className="text-accent">{counts.finished} vistas</span>
+                <span className="text-red-400">{counts.dropped} abandonadas</span>
+                <span className="text-muted/50">{counts.ignored} ignoradas</span>
+              </>
+            );
+          })()}
+        </div>
+
         <FilterToolbar
           filters={filters}
           onFilterChange={handleFilterChange}
