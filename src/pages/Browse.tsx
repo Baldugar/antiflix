@@ -348,13 +348,6 @@ export default function Browse({
     return items;
   }, [searchResults, catalog, filters, watchMap, actorFilter]);
 
-  const surpriseTitles = useMemo(
-    () => filtered.filter((t) => {
-      const s = watchMap.get(t.id) ?? 'none';
-      return s === 'none' || s === 'pending';
-    }),
-    [filtered, watchMap],
-  );
 
   // Infinite scroll
   const PAGE_SIZE = 40;
@@ -483,7 +476,7 @@ export default function Browse({
       <SurpriseModal
         isOpen={showSurprise}
         onClose={() => setShowSurprise(false)}
-        titles={surpriseTitles}
+        catalog={catalog}
         genres={genres}
         watchMap={watchMap}
         onSetStatus={onSetStatus}

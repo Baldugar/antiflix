@@ -64,33 +64,48 @@ function App() {
 
   // Track whether a change is from Firebase (to avoid write-back loops)
   const fromRemoteRef = useRef(false)
+  const initialSyncDoneRef = useRef(false)
 
   useEffect(() => {
     fetchGenres().then(setGenres)
   }, [])
 
-  // Load from Firebase on login
+  // Load from Firebase on login, then subscribe for real-time sync
   useEffect(() => {
     if (!authenticated || !isFirebaseConfigured()) return;
+    initialSyncDoneRef.current = false;
+    let unsub: (() => void) | null = null;
 
-    loadWatchMap(username).then((remote) => {
+    (async () => {
+      // Step 1: Load remote and merge with local
+      const remote = await loadWatchMap(username);
       if (remote && remote.size > 0) {
-        // Merge: remote wins for conflicts, keep local-only entries
+        fromRemoteRef.current = true;
         setWatchMap((local) => {
-          const merged = new Map(local);
-          for (const [id, status] of remote) {
-            merged.set(id, status);
+          const merged = new Map(remote);
+          // Local-only entries that aren't in remote get added
+          for (const [id, status] of local) {
+            if (!merged.has(id)) merged.set(id, status);
           }
           return merged;
         });
+      } else {
+        // No remote data — push local to Firebase
+        setWatchMap((local) => {
+          if (local.size > 0) saveWatchMap(username, local);
+          return local;
+        });
       }
-    });
 
-    // Subscribe to real-time updates (for cross-device sync)
-    const unsub = subscribeWatchMap(username, (remote) => {
-      fromRemoteRef.current = true;
-      setWatchMap(remote);
-    });
+      initialSyncDoneRef.current = true;
+
+      // Step 2: Subscribe for future real-time updates
+      unsub = subscribeWatchMap(username, (remoteMap) => {
+        if (!initialSyncDoneRef.current) return;
+        fromRemoteRef.current = true;
+        setWatchMap(remoteMap);
+      });
+    })();
 
     return () => { unsub?.(); };
   }, [authenticated, username]);
