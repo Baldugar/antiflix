@@ -59,7 +59,7 @@ export default function FilterToolbar({
         }`}
       >
         <option value="all">Todos</option>
-        <option value="none">No vistas</option>
+        <option value="none">Sin estado</option>
         <option value="pending">Pendientes</option>
         <option value="watching">Viendo</option>
         <option value="finished">Terminadas</option>

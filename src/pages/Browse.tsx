@@ -417,7 +417,7 @@ export default function Browse({
               <>
                 <span className="text-blue-400">{counts.pending} pendientes</span>
                 <span className="text-green-400">{counts.watching} viendo</span>
-                <span className="text-accent">{counts.finished} vistas</span>
+                <span className="text-accent">{counts.finished} terminadas</span>
                 <span className="text-red-400">{counts.dropped} abandonadas</span>
                 <span className="text-muted/50">{counts.ignored} ignoradas</span>
               </>
