@@ -352,18 +352,21 @@ export default function Browse({
   // Infinite scroll
   const PAGE_SIZE = 40;
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-  const sentinelRef = useRef<HTMLDivElement>(null);
+  const observerRef = useRef<IntersectionObserver | null>(null);
 
   // Reset visible count when filters change
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
   }, [filters, searchResults]);
 
-  useEffect(() => {
-    const sentinel = sentinelRef.current;
-    if (!sentinel) return;
-
-    const observer = new IntersectionObserver(
+  // Callback ref — reconnects observer whenever the sentinel mounts/remounts
+  const sentinelRef = useCallback((node: HTMLDivElement | null) => {
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+      observerRef.current = null;
+    }
+    if (!node) return;
+    observerRef.current = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting) {
           setVisibleCount((prev) => prev + PAGE_SIZE);
@@ -371,10 +374,8 @@ export default function Browse({
       },
       { rootMargin: '400px' },
     );
-
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [titlesLoaded]);
+    observerRef.current.observe(node);
+  }, []);
 
   const visibleTitles = useMemo(
     () => filtered.slice(0, visibleCount),
