@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
 import Header from './components/Header'
 import Footer from './components/Footer'
 import AboutModal from './components/AboutModal'
@@ -6,6 +6,7 @@ import SettingsModal from './components/SettingsModal'
 import PasswordGate from './components/PasswordGate'
 import { fetchGenres, setApiKey } from './lib/tmdb'
 import { localGet, localSet, clearAllCache } from './lib/cache'
+import { loadWatchMap, saveWatchMap, subscribeWatchMap, isFirebaseConfigured } from './lib/firebase'
 import type { WatchStatus } from './lib/types'
 
 const Browse = lazy(() => import('./pages/Browse'))
@@ -22,13 +23,19 @@ function App() {
     return false;
   })
 
-  const handleAuthenticated = useCallback((apiKey: string) => {
+  const [username, setUsername] = useState<string>(() => {
+    return localStorage.getItem('antiflix_username') || 'local';
+  })
+
+  const handleAuthenticated = useCallback((apiKey: string, user: string) => {
     setApiKey(apiKey);
+    setUsername(user);
     setAuthenticated(true);
   }, [])
 
   const handleLogout = useCallback(() => {
     localStorage.removeItem('antiflix_api_key');
+    localStorage.removeItem('antiflix_username');
     setAuthenticated(false);
     window.location.reload();
   }, [])
@@ -36,11 +43,9 @@ function App() {
   const [activeTab, setActiveTab] = useState<'browse' | 'moods' | 'about'>('browse')
   const [genres, setGenres] = useState<Map<number, string>>(new Map())
 
-  // Watch status map: id -> status (only stores non-'none' entries)
   const [watchMap, setWatchMap] = useState<Map<number, WatchStatus>>(() => {
     const saved = localGet<[number, WatchStatus][]>('antiflix_watchmap')
     if (saved) return new Map(saved)
-    // Migrate from old format
     const oldWatched = localGet<number[]>('antiflix_watched')
     if (oldWatched) {
       const map = new Map<number, WatchStatus>()
@@ -57,13 +62,52 @@ function App() {
   const [showAbout, setShowAbout] = useState(false)
   const [selectedMood, setSelectedMood] = useState<string | null>(null)
 
+  // Track whether a change is from Firebase (to avoid write-back loops)
+  const fromRemoteRef = useRef(false)
+
   useEffect(() => {
     fetchGenres().then(setGenres)
   }, [])
 
+  // Load from Firebase on login
+  useEffect(() => {
+    if (!authenticated || !isFirebaseConfigured()) return;
+
+    loadWatchMap(username).then((remote) => {
+      if (remote && remote.size > 0) {
+        // Merge: remote wins for conflicts, keep local-only entries
+        setWatchMap((local) => {
+          const merged = new Map(local);
+          for (const [id, status] of remote) {
+            merged.set(id, status);
+          }
+          return merged;
+        });
+      }
+    });
+
+    // Subscribe to real-time updates (for cross-device sync)
+    const unsub = subscribeWatchMap(username, (remote) => {
+      fromRemoteRef.current = true;
+      setWatchMap(remote);
+    });
+
+    return () => { unsub?.(); };
+  }, [authenticated, username]);
+
+  // Save locally + to Firebase on change
   useEffect(() => {
     localSet('antiflix_watchmap', [...watchMap])
-  }, [watchMap])
+
+    if (fromRemoteRef.current) {
+      fromRemoteRef.current = false;
+      return; // Don't write back what we just received
+    }
+
+    if (authenticated && isFirebaseConfigured()) {
+      saveWatchMap(username, watchMap);
+    }
+  }, [watchMap, authenticated, username])
 
   useEffect(() => {
     localSet('antiflix_region', region)
@@ -169,6 +213,7 @@ function App() {
         onSetStatusBatch={setStatusBatch}
         onClearWatched={clearWatchMap}
         onLogout={handleLogout}
+        username={username}
       />
     </div>
   )

@@ -485,6 +485,7 @@ export default function Browse({
         onClose={() => setShowSurprise(false)}
         titles={surpriseTitles}
         genres={genres}
+        watchMap={watchMap}
         onSetStatus={onSetStatus}
         onOpenDetail={setDetailTitle}
       />

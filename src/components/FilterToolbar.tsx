@@ -131,7 +131,7 @@ export default function FilterToolbar({
       </div>
 
       {/* Year filter */}
-      <div className="w-full sm:w-auto sm:min-w-[250px]">
+      <div className="w-full">
         <YearFilter
           min={filters.yearMin}
           max={filters.yearMax}

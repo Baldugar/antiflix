@@ -2,17 +2,18 @@ import { useState } from 'react';
 import { decryptApiKey, validateApiKey } from '../lib/crypto';
 
 interface PasswordGateProps {
-  onAuthenticated: (apiKey: string) => void;
+  onAuthenticated: (apiKey: string, username: string) => void;
 }
 
 export default function PasswordGate({ onAuthenticated }: PasswordGateProps) {
+  const [username, setUsername] = useState(() => localStorage.getItem('antiflix_username') || '');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!password.trim()) return;
+    if (!username.trim() || !password.trim()) return;
 
     setLoading(true);
     setError('');
@@ -22,8 +23,10 @@ export default function PasswordGate({ onAuthenticated }: PasswordGateProps) {
       const valid = await validateApiKey(apiKey);
 
       if (valid) {
+        const cleanUsername = username.trim().toLowerCase().replace(/\s+/g, '-');
         localStorage.setItem('antiflix_api_key', apiKey);
-        onAuthenticated(apiKey);
+        localStorage.setItem('antiflix_username', cleanUsername);
+        onAuthenticated(apiKey, cleanUsername);
       } else {
         setError('Password incorrecto');
       }
@@ -45,24 +48,32 @@ export default function PasswordGate({ onAuthenticated }: PasswordGateProps) {
           KILL THE ALGORITHM
         </p>
 
-        <div className="mt-10">
+        <div className="mt-10 space-y-3">
+          <input
+            type="text"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="Nombre de usuario"
+            autoFocus
+            className="w-full bg-card border border-border rounded-lg px-4 py-3 text-sm font-mono text-white placeholder-muted focus:outline-none focus:border-accent text-center"
+          />
+
           <input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Contraseña"
-            autoFocus
             className="w-full bg-card border border-border rounded-lg px-4 py-3 text-sm font-mono text-white placeholder-muted focus:outline-none focus:border-accent text-center"
           />
 
           {error && (
-            <p className="text-accent text-xs font-mono mt-2">{error}</p>
+            <p className="text-accent text-xs font-mono">{error}</p>
           )}
 
           <button
             type="submit"
-            disabled={loading}
-            className="w-full mt-4 bg-accent text-white font-mono text-sm py-3 rounded-lg hover:bg-accent/80 transition disabled:opacity-50"
+            disabled={loading || !username.trim()}
+            className="w-full bg-accent text-white font-mono text-sm py-3 rounded-lg hover:bg-accent/80 transition disabled:opacity-50"
           >
             {loading ? 'Verificando...' : 'Entrar'}
           </button>

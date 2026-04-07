@@ -11,6 +11,7 @@ interface SettingsModalProps {
   onSetStatusBatch: (entries: [number, WatchStatus][]) => void;
   onClearWatched: () => void;
   onLogout: () => void;
+  username: string;
 }
 
 const COUNTRIES = [
@@ -39,6 +40,7 @@ export default function SettingsModal({
   onSetStatusBatch,
   onClearWatched,
   onLogout,
+  username,
 }: SettingsModalProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -81,6 +83,7 @@ export default function SettingsModal({
         <button onClick={onClose} className="absolute top-3 right-3 text-muted hover:text-accent text-xl">×</button>
 
         <h2 className="font-display text-xl font-bold">Ajustes</h2>
+        <p className="text-xs text-muted font-mono mt-1">Usuario: {username}</p>
 
         {/* Stats */}
         <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-mono text-muted">

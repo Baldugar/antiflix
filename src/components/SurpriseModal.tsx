@@ -6,6 +6,7 @@ interface SurpriseModalProps {
   onClose: () => void;
   titles: Title[];
   genres: Map<number, string>;
+  watchMap: Map<number, WatchStatus>;
   onSetStatus: (id: number, status: WatchStatus) => void;
   onOpenDetail: (title: Title) => void;
 }
@@ -19,6 +20,7 @@ export default function SurpriseModal({
   onClose,
   titles,
   genres,
+  watchMap,
   onSetStatus,
   onOpenDetail,
 }: SurpriseModalProps) {
@@ -109,8 +111,8 @@ export default function SurpriseModal({
 
             <div className="flex-1" />
 
-            {/* Action buttons */}
-            <div className="flex gap-3 mt-4">
+            {/* Actions */}
+            <div className="flex flex-wrap gap-3 mt-4 items-center">
               <button
                 onClick={() => setCurrent(pickRandom(titles))}
                 className="bg-accent text-white font-mono text-xs px-4 py-2 rounded hover:bg-accent/80"
@@ -123,18 +125,18 @@ export default function SurpriseModal({
               >
                 VER DETALLES
               </button>
-              <button
-                onClick={() => onSetStatus(current.id, 'pending')}
-                className="border border-blue-500/50 text-blue-400 font-mono text-xs px-4 py-2 rounded hover:bg-blue-500/10"
+              <select
+                value={watchMap.get(current.id) ?? 'none'}
+                onChange={(e) => onSetStatus(current.id, e.target.value as WatchStatus)}
+                className="font-mono text-xs px-3 py-2 rounded border border-border bg-card text-white cursor-pointer"
               >
-                PENDIENTE
-              </button>
-              <button
-                onClick={() => onSetStatus(current.id, 'finished')}
-                className="border border-border text-muted font-mono text-xs px-4 py-2 rounded hover:border-accent hover:text-accent"
-              >
-                VISTA
-              </button>
+                <option value="none">— No vista</option>
+                <option value="pending">📋 Pendiente</option>
+                <option value="watching">▶ Viendo</option>
+                <option value="finished">✓ Terminada</option>
+                <option value="dropped">✕ Abandonada</option>
+                <option value="ignored">🚫 Ignorada</option>
+              </select>
             </div>
           </div>
         </div>

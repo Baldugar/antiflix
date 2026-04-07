@@ -12,6 +12,7 @@
     "encrypt-key": "node scripts/encrypt-key.mjs"
   },
   "dependencies": {
+    "firebase": "^12.11.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-window": "^2.2.7",
