@@ -3,8 +3,8 @@ import { fetchFullCatalog, searchMulti, fetchKeywords, fetchActorTitleIds } from
 import { cacheGet, cacheSet } from '../lib/cache';
 import type { Title, FilterState } from '../lib/types';
 import { MOOD_KEYWORDS } from '../lib/types';
-import PosterCard from '../components/PosterCard';
 import SkeletonCard from '../components/SkeletonCard';
+import VirtualGrid from '../components/VirtualGrid';
 import FilterToolbar from '../components/FilterToolbar';
 import GenreFilters from '../components/GenreFilters';
 import TagFilters from '../components/TagFilters';
@@ -370,38 +370,6 @@ export default function Browse({
   }, [searchResults, catalog, filters, watchMap, actorFilter, randomSeed]);
 
 
-  // Infinite scroll
-  const PAGE_SIZE = 40;
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-  const observerRef = useRef<IntersectionObserver | null>(null);
-
-  // Reset visible count when filters change
-  useEffect(() => {
-    setVisibleCount(PAGE_SIZE);
-  }, [filters, searchResults]);
-
-  // Callback ref — reconnects observer whenever the sentinel mounts/remounts
-  const sentinelRef = useCallback((node: HTMLDivElement | null) => {
-    if (observerRef.current) {
-      observerRef.current.disconnect();
-      observerRef.current = null;
-    }
-    if (!node) return;
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) {
-          setVisibleCount((prev) => prev + PAGE_SIZE);
-        }
-      },
-      { rootMargin: '400px' },
-    );
-    observerRef.current.observe(node);
-  }, []);
-
-  const visibleTitles = useMemo(
-    () => filtered.slice(0, visibleCount),
-    [filtered, visibleCount],
-  );
 
   return (
     <>
@@ -473,47 +441,22 @@ export default function Browse({
 
         {!titlesLoaded ? (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 mt-4">
-            {catalog.length > 0
-              ? catalog.slice(0, 20).map((title) => (
-                  <PosterCard
-                    key={title.id}
-                    title={title}
-                    genres={genres}
-                    status={watchMap.get(title.id) ?? 'none'}
-                    onSetStatus={onSetStatus}
-                    onOpenDetail={setDetailTitle}
-                    activeKeywords={filters.keywords}
-                    onToggleKeyword={handleToggleTag}
-                  />
-                ))
-              : Array.from({ length: 12 }).map((_, i) => <SkeletonCard key={i} />)}
+            {Array.from({ length: 12 }).map((_, i) => <SkeletonCard key={i} />)}
           </div>
         ) : filtered.length === 0 ? (
           <div className="text-center py-16">
             <p className="text-muted font-body text-sm">No se encontraron títulos</p>
           </div>
         ) : (
-          <>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 mt-4">
-              {visibleTitles.map((title) => (
-                <PosterCard
-                  key={title.id}
-                  title={title}
-                  genres={genres}
-                  status={watchMap.get(title.id) ?? 'none'}
-                  onSetStatus={onSetStatus}
-                  onOpenDetail={setDetailTitle}
-                />
-              ))}
-            </div>
-            {visibleCount < filtered.length && (
-              <div ref={sentinelRef} className="flex justify-center py-8">
-                <span className="font-mono text-xs text-muted animate-pulse">
-                  Cargando más...
-                </span>
-              </div>
-            )}
-          </>
+          <VirtualGrid
+            titles={filtered}
+            genres={genres}
+            watchMap={watchMap}
+            onSetStatus={onSetStatus}
+            onOpenDetail={setDetailTitle}
+            activeKeywords={filters.keywords}
+            onToggleKeyword={handleToggleTag}
+          />
         )}
       </div>
 
