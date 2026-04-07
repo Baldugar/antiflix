@@ -68,10 +68,19 @@ export default function Browse({
   const keywordsLoaded = kwProgress.done;
 
   const fetchedKeywordsRef = useRef<Set<number>>(new Set());
+  const [randomSeed, setRandomSeed] = useState(Date.now());
+  const [showScrollTop, setShowScrollTop] = useState(false);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingKeywordTitlesRef = useRef<Title[]>([]);
   const kwFetchingRef = useRef(false);
   const kwCancelledRef = useRef(false);
+
+  // Scroll-to-top button visibility
+  useEffect(() => {
+    const onScroll = () => setShowScrollTop(window.scrollY > 600);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
 
   useEffect(() => {
     if (initialMood) {
@@ -236,6 +245,7 @@ export default function Browse({
   }, [filters.search]);
 
   const handleFilterChange = useCallback((partial: Partial<FilterState>) => {
+    if (partial.sort === 'random') setRandomSeed(Date.now());
     setFilters((prev) => ({ ...prev, ...partial }));
   }, []);
 
@@ -335,18 +345,29 @@ export default function Browse({
       });
     }
 
-    const dir = filters.sortDir === 'asc' ? 1 : -1;
-    items = [...items].sort((a, b) => {
-      switch (filters.sort) {
-        case 'popularity': return (a.popularity - b.popularity) * dir;
-        case 'rating': return (a.voteAverage - b.voteAverage) * dir;
-        case 'year': return (a.releaseYear - b.releaseYear) * dir;
-        default: return 0;
+    if (filters.sort === 'random') {
+      // Seeded shuffle (Fisher-Yates with deterministic seed)
+      items = [...items];
+      let seed = randomSeed;
+      for (let i = items.length - 1; i > 0; i--) {
+        seed = (seed * 16807 + 0) % 2147483647;
+        const j = seed % (i + 1);
+        [items[i], items[j]] = [items[j], items[i]];
       }
-    });
+    } else {
+      const dir = filters.sortDir === 'asc' ? 1 : -1;
+      items = [...items].sort((a, b) => {
+        switch (filters.sort) {
+          case 'popularity': return (a.popularity - b.popularity) * dir;
+          case 'rating': return (a.voteAverage - b.voteAverage) * dir;
+          case 'year': return (a.releaseYear - b.releaseYear) * dir;
+          default: return 0;
+        }
+      });
+    }
 
     return items;
-  }, [searchResults, catalog, filters, watchMap, actorFilter]);
+  }, [searchResults, catalog, filters, watchMap, actorFilter, randomSeed]);
 
 
   // Infinite scroll
@@ -522,6 +543,17 @@ export default function Browse({
         onToggleKeyword={handleToggleTag}
         onFilterByActor={handleFilterByActor}
       />
+
+      {/* Scroll to top */}
+      {showScrollTop && (
+        <button
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          className="fixed bottom-4 left-4 z-40 bg-card border border-border text-muted hover:text-accent hover:border-accent w-10 h-10 rounded-full flex items-center justify-center text-lg shadow-lg transition"
+          aria-label="Volver arriba"
+        >
+          ↑
+        </button>
+      )}
     </>
   );
 }

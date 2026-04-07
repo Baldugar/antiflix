@@ -20,6 +20,7 @@ const sortOptions: { label: string; value: SortOption }[] = [
   { label: 'Popularidad', value: 'popularity' },
   { label: 'Rating', value: 'rating' },
   { label: 'Año', value: 'year' },
+  { label: 'Aleatorio', value: 'random' },
 ];
 
 export default function FilterToolbar({

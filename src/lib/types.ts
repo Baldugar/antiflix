@@ -55,7 +55,7 @@ export interface Genre {
   name: string;
 }
 
-export type SortOption = 'popularity' | 'rating' | 'year';
+export type SortOption = 'popularity' | 'rating' | 'year' | 'random';
 export type SortDirection = 'asc' | 'desc';
 export type MediaFilter = 'all' | 'movie' | 'tv';
 
