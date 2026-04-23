@@ -346,14 +346,15 @@ export default function Browse({
     }
 
     if (filters.sort === 'random') {
-      // Seeded shuffle (Fisher-Yates with deterministic seed)
-      items = [...items];
-      let seed = randomSeed;
-      for (let i = items.length - 1; i > 0; i--) {
-        seed = (seed * 16807 + 0) % 2147483647;
-        const j = seed % (i + 1);
-        [items[i], items[j]] = [items[j], items[i]];
-      }
+      // Stable per-item hash: order depends on (id, seed) only, not list length,
+      // so filtering out an item doesn't reshuffle the remaining ones.
+      const hash = (id: number) => {
+        let h = (id ^ randomSeed) >>> 0;
+        h = Math.imul(h ^ (h >>> 16), 0x85ebca6b) >>> 0;
+        h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35) >>> 0;
+        return (h ^ (h >>> 16)) >>> 0;
+      };
+      items = [...items].sort((a, b) => hash(a.id) - hash(b.id));
     } else {
       const dir = filters.sortDir === 'asc' ? 1 : -1;
       items = [...items].sort((a, b) => {

@@ -56,8 +56,9 @@ export default function SurpriseModal({
     .filter(Boolean);
 
   return (
-    <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-      <div className="bg-card border border-border rounded-lg max-w-4xl w-full p-0 relative overflow-hidden flex">
+    <div className="fixed inset-0 bg-black/80 z-50 overflow-y-auto">
+      <div className="min-h-full flex items-start md:items-center justify-center p-0 md:p-4">
+      <div className="bg-card md:border md:border-border md:rounded-lg max-w-4xl w-full p-0 relative md:overflow-hidden flex min-h-screen md:min-h-0">
         {/* Main content */}
         <div className="flex-1 min-w-0">
           <button
@@ -184,6 +185,7 @@ export default function SurpriseModal({
             ))}
           </div>
         )}
+      </div>
       </div>
     </div>
   );
