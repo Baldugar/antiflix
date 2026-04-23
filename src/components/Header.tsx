@@ -1,7 +1,12 @@
+import type { PlatformId } from '../lib/platforms';
+import { PLATFORMS } from '../lib/platforms';
+
 interface HeaderProps {
   activeTab: string;
   onTabChange: (tab: string) => void;
   onSettingsOpen: () => void;
+  platform: PlatformId;
+  onPlatformChange: (p: PlatformId) => void;
 }
 
 const tabs = [
@@ -10,7 +15,13 @@ const tabs = [
   { label: "ACERCA DE", value: "about" },
 ] as const;
 
-export default function Header({ activeTab, onTabChange, onSettingsOpen }: HeaderProps) {
+export default function Header({
+  activeTab,
+  onTabChange,
+  onSettingsOpen,
+  platform,
+  onPlatformChange,
+}: HeaderProps) {
   return (
     <header className="sticky top-0 z-50 bg-bg border-b border-border px-6 py-4">
       <div className="flex items-start justify-between">
@@ -46,7 +57,7 @@ export default function Header({ activeTab, onTabChange, onSettingsOpen }: Heade
         </button>
       </div>
 
-      <nav className="mt-3 flex gap-4">
+      <nav className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
         {tabs.map((tab) => (
           <button
             key={tab.value}
@@ -60,6 +71,23 @@ export default function Header({ activeTab, onTabChange, onSettingsOpen }: Heade
             {tab.label}
           </button>
         ))}
+
+        <div className="ml-auto flex items-center gap-1 flex-wrap">
+          {PLATFORMS.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => onPlatformChange(p.id)}
+              className={`font-mono text-[11px] tracking-wider px-2 py-1 rounded transition ${
+                platform === p.id
+                  ? "bg-accent text-white"
+                  : "text-muted hover:text-accent border border-border"
+              }`}
+              title={p.label}
+            >
+              {p.short}
+            </button>
+          ))}
+        </div>
       </nav>
     </header>
   );

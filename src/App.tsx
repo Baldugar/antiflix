@@ -8,6 +8,8 @@ import { fetchGenres, setApiKey } from './lib/tmdb'
 import { localGet, localSet, clearAllCache } from './lib/cache'
 import { loadWatchMap, saveWatchMap, subscribeWatchMap, isFirebaseConfigured } from './lib/firebase'
 import type { WatchStatus } from './lib/types'
+import type { PlatformId } from './lib/platforms'
+import { DEFAULT_PLATFORM } from './lib/platforms'
 
 const Browse = lazy(() => import('./pages/Browse'))
 const Moods = lazy(() => import('./pages/Moods'))
@@ -57,6 +59,9 @@ function App() {
 
   const [region, setRegion] = useState<string>(() => {
     return localGet<string>('antiflix_region') ?? 'ES'
+  })
+  const [platform, setPlatform] = useState<PlatformId>(() => {
+    return localGet<PlatformId>('antiflix_platform') ?? DEFAULT_PLATFORM
   })
   const [showSettings, setShowSettings] = useState(false)
   const [showAbout, setShowAbout] = useState(false)
@@ -128,6 +133,10 @@ function App() {
     localSet('antiflix_region', region)
   }, [region])
 
+  useEffect(() => {
+    localSet('antiflix_platform', platform)
+  }, [platform])
+
   const setStatus = useCallback((id: number, status: WatchStatus) => {
     setWatchMap(prev => {
       const next = new Map(prev)
@@ -162,6 +171,10 @@ function App() {
     setRegion(r)
   }, [])
 
+  const handlePlatformChange = useCallback((p: PlatformId) => {
+    setPlatform(p)
+  }, [])
+
   const handleResync = useCallback(async () => {
     await clearAllCache()
     window.location.reload()
@@ -190,6 +203,8 @@ function App() {
         activeTab={activeTab}
         onTabChange={handleTabChange}
         onSettingsOpen={() => setShowSettings(true)}
+        platform={platform}
+        onPlatformChange={handlePlatformChange}
       />
 
       <main className="flex-1 max-w-7xl mx-auto w-full px-4">
@@ -205,6 +220,7 @@ function App() {
               onSetStatus={setStatus}
               onSetStatusBatch={setStatusBatch}
               region={region}
+              platform={platform}
               initialMood={selectedMood}
               onClearMood={() => setSelectedMood(null)}
             />

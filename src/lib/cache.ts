@@ -100,6 +100,10 @@ export async function cacheSetRaw<T>(key: string, data: T): Promise<void> {
   await idbSet(key, data);
 }
 
+export async function cacheDelete(key: string): Promise<void> {
+  await idbDelete(key);
+}
+
 // ─── Sync helpers (localStorage) — for tiny data ───────────
 
 export function localGet<T>(key: string): T | null {

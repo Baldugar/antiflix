@@ -1,5 +1,5 @@
 import type { Title, Genre, TitleDetail, CastMember } from './types';
-import { cacheGet, cacheSet, cacheGetRaw, cacheSetRaw } from './cache';
+import { cacheGet, cacheSet, cacheGetRaw, cacheSetRaw, cacheDelete } from './cache';
 
 const BASE_URL = 'https://api.themoviedb.org/3';
 let _apiKey: string = (import.meta.env.VITE_TMDB_API_KEY as string) || '';
@@ -19,8 +19,19 @@ const RATE_LIMIT = 25;
 const RATE_WINDOW = 1_000;
 const MAX_RETRIES = 3;
 const timestamps: number[] = [];
-const queue: Array<{ resolve: (v: Response) => void; reject: (e: unknown) => void; url: string }> = [];
+
+interface QueueEntry {
+  resolve: (v: Response) => void;
+  reject: (e: unknown) => void;
+  url: string;
+  signal?: AbortSignal;
+}
+const queue: QueueEntry[] = [];
 let processing = false;
+
+function makeAbortError(): DOMException {
+  return new DOMException('Aborted', 'AbortError');
+}
 
 function processQueue(): void {
   if (processing || queue.length === 0) return;
@@ -41,28 +52,53 @@ function processQueue(): void {
   }
 
   const entry = queue.shift()!;
+
+  // Drop already-aborted requests without spending the rate-limit slot
+  if (entry.signal?.aborted) {
+    entry.reject(makeAbortError());
+    processing = false;
+    processQueue();
+    return;
+  }
+
   timestamps.push(Date.now());
   processing = false;
 
-  fetchWithRetry(entry.url, MAX_RETRIES)
+  fetchWithRetry(entry.url, MAX_RETRIES, entry.signal)
     .then(entry.resolve)
     .catch(entry.reject)
     .finally(() => processQueue());
 }
 
-async function fetchWithRetry(url: string, retries: number): Promise<Response> {
-  const res = await fetch(url);
+async function fetchWithRetry(url: string, retries: number, signal?: AbortSignal): Promise<Response> {
+  const res = await fetch(url, { signal });
   if (res.status === 429 && retries > 0) {
     const retryAfter = parseInt(res.headers.get('Retry-After') || '2', 10);
     await new Promise((r) => setTimeout(r, retryAfter * 1000));
-    return fetchWithRetry(url, retries - 1);
+    if (signal?.aborted) throw makeAbortError();
+    return fetchWithRetry(url, retries - 1, signal);
   }
   return res;
 }
 
-function throttledFetch(url: string): Promise<Response> {
+function throttledFetch(url: string, signal?: AbortSignal): Promise<Response> {
   return new Promise((resolve, reject) => {
-    queue.push({ resolve, reject, url });
+    if (signal?.aborted) {
+      reject(makeAbortError());
+      return;
+    }
+    const entry: QueueEntry = { resolve, reject, url, signal };
+
+    if (signal) {
+      const onAbort = () => {
+        const idx = queue.indexOf(entry);
+        if (idx >= 0) queue.splice(idx, 1);
+        reject(makeAbortError());
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+
+    queue.push(entry);
     processQueue();
   });
 }
@@ -134,15 +170,17 @@ export async function fetchCatalogPage(
   type: 'movie' | 'tv',
   page: number,
   region: string,
+  providerId: number,
+  signal?: AbortSignal,
 ): Promise<{ results: Title[]; totalPages: number; totalResults: number }> {
   const url = apiUrl(`/discover/${type}`, {
-    with_watch_providers: 8,
+    with_watch_providers: providerId,
     watch_region: region,
     page,
     sort_by: 'popularity.desc',
   });
 
-  const res = await throttledFetch(url);
+  const res = await throttledFetch(url, signal);
   const data = await res.json();
 
   return {
@@ -163,94 +201,145 @@ interface CatalogProgress {
   totalEstimated: number;
 }
 
+interface CatalogProgressCache {
+  movies: Title[];
+  tv: Title[];
+  moviePagesDone: number[];
+  tvPagesDone: number[];
+  movieTotalPages: number;
+  tvTotalPages: number;
+  movieTotalResults: number;
+  tvTotalResults: number;
+}
+
+export function isAbortError(e: unknown): boolean {
+  return !!e && typeof e === 'object' && 'name' in e && (e as { name: string }).name === 'AbortError';
+}
+
 export async function fetchFullCatalog(
   region: string,
+  providerId: number,
   onProgress: (progress: CatalogProgress) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
-  // Check cache freshness
-  const tsMeta = await cacheGetRaw<{ ts: number }>('antiflix_catalog_ts');
+  const suffix = `${providerId}_${region}`;
+  const tsKey = `antiflix_catalog_ts_${suffix}`;
+  const moviesKey = `antiflix_catalog_movies_${suffix}`;
+  const tvKey = `antiflix_catalog_tv_${suffix}`;
+  const progressKey = `antiflix_catalog_progress_${suffix}`;
+
+  const checkAbort = () => {
+    if (signal?.aborted) throw makeAbortError();
+  };
+
+  // Fresh complete cache?
+  const tsMeta = await cacheGetRaw<{ ts: number }>(tsKey);
   if (tsMeta && Date.now() - tsMeta.ts < 24 * 60 * 60 * 1000) {
-    const cachedMovies = await cacheGet<Title[]>('antiflix_catalog_movies');
-    const cachedTv = await cacheGet<Title[]>('antiflix_catalog_tv');
+    const cachedMovies = await cacheGet<Title[]>(moviesKey);
+    const cachedTv = await cacheGet<Title[]>(tvKey);
     if (cachedMovies && cachedTv) {
-      onProgress({ movies: cachedMovies, tv: cachedTv, done: true, totalEstimated: cachedMovies.length + cachedTv.length });
+      onProgress({
+        movies: cachedMovies,
+        tv: cachedTv,
+        done: true,
+        totalEstimated: cachedMovies.length + cachedTv.length,
+      });
       return;
     }
   }
 
-  let allMovies: Title[] = [];
-  let allTv: Title[] = [];
-  let movieTotalPages = 1;
-  let tvTotalPages = 1;
-  let movieTotalResults = 0;
-  let tvTotalResults = 0;
+  // Resume from prior partial progress, if any
+  const partial = await cacheGet<CatalogProgressCache>(progressKey);
+  let allMovies: Title[] = partial?.movies ?? [];
+  let allTv: Title[] = partial?.tv ?? [];
+  const moviePagesDone = new Set<number>(partial?.moviePagesDone ?? []);
+  const tvPagesDone = new Set<number>(partial?.tvPagesDone ?? []);
+  let movieTotalPages = partial?.movieTotalPages ?? 0;
+  let tvTotalPages = partial?.tvTotalPages ?? 0;
+  let movieTotalResults = partial?.movieTotalResults ?? 0;
+  let tvTotalResults = partial?.tvTotalResults ?? 0;
 
-  // Fetch first 5 pages of both simultaneously for fast initial UI
-  const initialPages = 5;
-  const initialPromises: Promise<void>[] = [];
-
-  for (let p = 1; p <= initialPages; p++) {
-    initialPromises.push(
-      fetchCatalogPage('movie', p, region).then((res) => {
-        allMovies = allMovies.concat(res.results);
-        if (p === 1) {
-          movieTotalPages = Math.min(res.totalPages, 500);
-          movieTotalResults = res.totalResults;
-        }
-      }),
-    );
-    initialPromises.push(
-      fetchCatalogPage('tv', p, region).then((res) => {
-        allTv = allTv.concat(res.results);
-        if (p === 1) {
-          tvTotalPages = Math.min(res.totalPages, 500);
-          tvTotalResults = res.totalResults;
-        }
-      }),
-    );
+  // Discover totalPages for any type we've never fetched
+  if (movieTotalPages === 0) {
+    const res = await fetchCatalogPage('movie', 1, region, providerId, signal);
+    checkAbort();
+    if (!moviePagesDone.has(1)) {
+      allMovies = allMovies.concat(res.results);
+      moviePagesDone.add(1);
+    }
+    movieTotalPages = Math.min(res.totalPages, 500);
+    movieTotalResults = res.totalResults;
+  }
+  if (tvTotalPages === 0) {
+    const res = await fetchCatalogPage('tv', 1, region, providerId, signal);
+    checkAbort();
+    if (!tvPagesDone.has(1)) {
+      allTv = allTv.concat(res.results);
+      tvPagesDone.add(1);
+    }
+    tvTotalPages = Math.min(res.totalPages, 500);
+    tvTotalResults = res.totalResults;
   }
 
-  await Promise.all(initialPromises);
   const totalEstimated = movieTotalResults + tvTotalResults;
   onProgress({ movies: allMovies, tv: allTv, done: false, totalEstimated });
 
-  // Fetch remaining pages in background batches
-  const allRemainingPages = [
-    ...Array.from({ length: Math.max(0, movieTotalPages - initialPages) }, (_, i) => ({
-      type: 'movie' as const,
-      page: initialPages + 1 + i,
-    })),
-    ...Array.from({ length: Math.max(0, tvTotalPages - initialPages) }, (_, i) => ({
-      type: 'tv' as const,
-      page: initialPages + 1 + i,
-    })),
-  ];
+  // Build pending list (skips pages already cached)
+  const remainingPages: Array<{ type: 'movie' | 'tv'; page: number }> = [];
+  for (let p = 1; p <= movieTotalPages; p++) {
+    if (!moviePagesDone.has(p)) remainingPages.push({ type: 'movie', page: p });
+  }
+  for (let p = 1; p <= tvTotalPages; p++) {
+    if (!tvPagesDone.has(p)) remainingPages.push({ type: 'tv', page: p });
+  }
 
   const BATCH_SIZE = 10;
+  for (let i = 0; i < remainingPages.length; i += BATCH_SIZE) {
+    const batch = remainingPages.slice(i, i + BATCH_SIZE);
 
-  for (let i = 0; i < allRemainingPages.length; i += BATCH_SIZE) {
-    const batch = allRemainingPages.slice(i, i + BATCH_SIZE);
-
-    await Promise.all(
+    // Use settled wrapper so a single abort/error doesn't lose the rest of the batch
+    const settled = await Promise.all(
       batch.map((entry) =>
-        fetchCatalogPage(entry.type, entry.page, region).then((res) => {
-          if (entry.type === 'movie') {
-            allMovies = allMovies.concat(res.results);
-          } else {
-            allTv = allTv.concat(res.results);
-          }
-        }),
+        fetchCatalogPage(entry.type, entry.page, region, providerId, signal)
+          .then((res) => ({ ok: true as const, entry, results: res.results }))
+          .catch((err) => ({ ok: false as const, entry, err })),
       ),
     );
 
+    for (const s of settled) {
+      if (!s.ok) continue;
+      if (s.entry.type === 'movie') {
+        allMovies = allMovies.concat(s.results);
+        moviePagesDone.add(s.entry.page);
+      } else {
+        allTv = allTv.concat(s.results);
+        tvPagesDone.add(s.entry.page);
+      }
+    }
+
+    // Persist progress so a switch-away doesn't lose what we just fetched
+    await cacheSet<CatalogProgressCache>(progressKey, {
+      movies: allMovies,
+      tv: allTv,
+      moviePagesDone: [...moviePagesDone],
+      tvPagesDone: [...tvPagesDone],
+      movieTotalPages,
+      tvTotalPages,
+      movieTotalResults,
+      tvTotalResults,
+    });
+
+    // Emit progress for what we just got, then check abort (so partial save is durable)
     onProgress({ movies: allMovies, tv: allTv, done: false, totalEstimated });
+    checkAbort();
   }
 
-  // Cache final results
+  // Final write + clear progress
   await Promise.all([
-    cacheSet('antiflix_catalog_movies', allMovies),
-    cacheSet('antiflix_catalog_tv', allTv),
-    cacheSetRaw('antiflix_catalog_ts', { ts: Date.now() }),
+    cacheSet(moviesKey, allMovies),
+    cacheSet(tvKey, allTv),
+    cacheSetRaw(tsKey, { ts: Date.now() }),
+    cacheDelete(progressKey),
   ]);
 
   onProgress({ movies: allMovies, tv: allTv, done: true, totalEstimated });
@@ -261,13 +350,14 @@ export async function fetchFullCatalog(
 export async function fetchKeywords(
   id: number,
   mediaType: 'movie' | 'tv',
+  signal?: AbortSignal,
 ): Promise<string[]> {
   const cacheKey = `antiflix_keywords_${id}`;
   const cached = await cacheGet<string[]>(cacheKey);
   if (cached) return cached;
 
   const url = apiUrl(`/${mediaType}/${id}/keywords`);
-  const res = await throttledFetch(url);
+  const res = await throttledFetch(url, signal);
   const data = await res.json();
 
   const raw = mediaType === 'movie'

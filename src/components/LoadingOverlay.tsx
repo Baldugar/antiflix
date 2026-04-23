@@ -1,12 +1,14 @@
 interface LoadingOverlayProps {
   titleProgress: { loaded: number; total: number; done: boolean };
   region: string;
+  platformLabel: string;
   hidden?: boolean;
 }
 
 export default function LoadingOverlay({
   titleProgress,
   region,
+  platformLabel,
   hidden,
 }: LoadingOverlayProps) {
   if (titleProgress.done || hidden) return null;
@@ -40,7 +42,7 @@ export default function LoadingOverlay({
         </div>
 
         <p className="text-xs text-muted/60 font-mono mt-6">
-          Descargando catálogo de Netflix ({region})...
+          Descargando catálogo de {platformLabel} ({region})...
         </p>
       </div>
     </div>

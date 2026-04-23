@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { fetchFullCatalog, searchMulti, fetchKeywords, fetchActorTitleIds } from '../lib/tmdb';
+import { fetchFullCatalog, searchMulti, fetchKeywords, fetchActorTitleIds, isAbortError } from '../lib/tmdb';
 import { cacheGet, cacheSet } from '../lib/cache';
 import type { Title, FilterState } from '../lib/types';
 import { MOOD_KEYWORDS } from '../lib/types';
+import type { PlatformId } from '../lib/platforms';
+import { getPlatform } from '../lib/platforms';
 import SkeletonCard from '../components/SkeletonCard';
 import VirtualGrid from '../components/VirtualGrid';
 import FilterToolbar from '../components/FilterToolbar';
@@ -14,6 +16,7 @@ import ImportPanel from '../components/ImportPanel';
 import LoadingOverlay from '../components/LoadingOverlay';
 import KeywordProgressBar from '../components/KeywordProgressBar';
 import TitleDetailModal from '../components/TitleDetailModal';
+import StatsModal from '../components/StatsModal';
 
 import type { WatchStatus } from '../lib/types';
 
@@ -23,6 +26,7 @@ interface BrowseProps {
   onSetStatus: (id: number, status: WatchStatus) => void;
   onSetStatusBatch: (entries: [number, WatchStatus][]) => void;
   region: string;
+  platform: PlatformId;
   initialMood?: string | null;
   onClearMood?: () => void;
 }
@@ -49,14 +53,20 @@ export default function Browse({
   onSetStatus,
   onSetStatusBatch,
   region,
+  platform,
   initialMood,
   onClearMood,
 }: BrowseProps) {
+  const platformInfo = getPlatform(platform);
+  const platformSuffix = `${platformInfo.providerId}_${region}`;
+  const catalogWithKwKey = `antiflix_catalog_with_kw_${platformSuffix}`;
+  const allKeywordsKey = `antiflix_all_keywords_${platformSuffix}`;
   const [catalog, setCatalog] = useState<Title[]>([]);
   const [filters, setFilters] = useState<FilterState>(INITIAL_FILTERS);
   const [searchResults, setSearchResults] = useState<Title[] | null>(null);
   const [showSurprise, setShowSurprise] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showStats, setShowStats] = useState(false);
   const [allKeywords, setAllKeywords] = useState<string[]>([]);
   const [detailTitle, setDetailTitle] = useState<Title | null>(null);
   const [actorFilter, setActorFilter] = useState<{ id: number; name: string; titleIds: Set<number> } | null>(null);
@@ -67,13 +77,9 @@ export default function Browse({
   const titlesLoaded = titleProgress.done;
   const keywordsLoaded = kwProgress.done;
 
-  const fetchedKeywordsRef = useRef<Set<number>>(new Set());
   const [randomSeed, setRandomSeed] = useState(Date.now());
   const [showScrollTop, setShowScrollTop] = useState(false);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingKeywordTitlesRef = useRef<Title[]>([]);
-  const kwFetchingRef = useRef(false);
-  const kwCancelledRef = useRef(false);
 
   // Scroll-to-top button visibility
   useEffect(() => {
@@ -89,96 +95,96 @@ export default function Browse({
     }
   }, [initialMood, onClearMood]);
 
-  const processKeywordQueue = useCallback(async () => {
-    if (kwFetchingRef.current) return;
-    kwFetchingRef.current = true;
-
-    const BATCH = 5;
-    while (pendingKeywordTitlesRef.current.length > 0) {
-      if (kwCancelledRef.current) break;
-
-      const batch = pendingKeywordTitlesRef.current.splice(0, BATCH);
-
-      const results = await Promise.all(
-        batch.map(async (title) => {
-          if (fetchedKeywordsRef.current.has(title.id)) return null;
-          fetchedKeywordsRef.current.add(title.id);
-          try {
-            const kws = await fetchKeywords(title.id, title.mediaType);
-            return { id: title.id, keywords: kws };
-          } catch {
-            return null;
-          }
-        }),
-      );
-
-      if (kwCancelledRef.current) break;
-
-      const validResults = results.filter(
-        (r): r is { id: number; keywords: string[] } => r !== null && r.keywords.length > 0,
-      );
-
-      if (validResults.length > 0) {
-        setCatalog((prev) => {
-          const map = new Map(validResults.map((r) => [r.id, r.keywords]));
-          return prev.map((t) => (map.has(t.id) ? { ...t, keywords: map.get(t.id) } : t));
-        });
-
-        setAllKeywords((prev) => {
-          const set = new Set(prev);
-          for (const r of validResults) {
-            for (const kw of r.keywords) set.add(kw);
-          }
-          return Array.from(set).sort();
-        });
-      }
-
-      setKwProgress((prev) => ({
-        ...prev,
-        fetched: fetchedKeywordsRef.current.size,
-      }));
-    }
-
-    kwFetchingRef.current = false;
-
-    const isDone = pendingKeywordTitlesRef.current.length === 0;
-    setKwProgress((prev) => ({
-      ...prev,
-      fetched: fetchedKeywordsRef.current.size,
-      done: isDone,
-    }));
-
-    // When all keywords are fetched, save the enriched catalog + keywords list to cache
-    if (isDone) {
-      setCatalog((current) => {
-        cacheSet('antiflix_catalog_with_kw', current);
-        return current;
-      });
-      setAllKeywords((current) => {
-        cacheSet('antiflix_all_keywords', current);
-        return current;
-      });
-    }
-  }, []);
-
   useEffect(() => {
+    // All state for this run is isolated in local variables, so a previous
+    // run switching platform mid-flight cannot bleed into the new run's
+    // catalog, keyword list, or cache keys.
+    const controller = new AbortController();
+    const cancelToken = { cancelled: false };
+    const fetchedIds = new Set<number>();
+    const pendingQueue: Title[] = [];
+    let fetching = false;
+
     setTitleProgress({ loaded: 0, total: 0, done: false });
     setKwProgress({ fetched: 0, total: 0, done: false });
     setCatalog([]);
     setAllKeywords([]);
-    fetchedKeywordsRef.current = new Set();
-    pendingKeywordTitlesRef.current = [];
-    kwCancelledRef.current = false;
+    setCheckingCache(true);
 
-    // Try to restore fully-enriched catalog from cache first
+    const processKeywordQueue = async () => {
+      if (fetching) return;
+      fetching = true;
+
+      const BATCH = 5;
+      while (pendingQueue.length > 0) {
+        if (cancelToken.cancelled) break;
+
+        const batch = pendingQueue.splice(0, BATCH);
+
+        const results = await Promise.all(
+          batch.map(async (title) => {
+            if (fetchedIds.has(title.id)) return null;
+            fetchedIds.add(title.id);
+            try {
+              const kws = await fetchKeywords(title.id, title.mediaType, controller.signal);
+              return { id: title.id, keywords: kws };
+            } catch {
+              return null;
+            }
+          }),
+        );
+
+        if (cancelToken.cancelled) break;
+
+        const validResults = results.filter(
+          (r): r is { id: number; keywords: string[] } => r !== null && r.keywords.length > 0,
+        );
+
+        if (validResults.length > 0) {
+          setCatalog((prev) => {
+            const map = new Map(validResults.map((r) => [r.id, r.keywords]));
+            return prev.map((t) => (map.has(t.id) ? { ...t, keywords: map.get(t.id) } : t));
+          });
+
+          setAllKeywords((prev) => {
+            const set = new Set(prev);
+            for (const r of validResults) {
+              for (const kw of r.keywords) set.add(kw);
+            }
+            return Array.from(set).sort();
+          });
+        }
+
+        setKwProgress((prev) => ({ ...prev, fetched: fetchedIds.size }));
+      }
+
+      fetching = false;
+      if (cancelToken.cancelled) return;
+
+      const isDone = pendingQueue.length === 0;
+      setKwProgress((prev) => ({ ...prev, fetched: fetchedIds.size, done: isDone }));
+
+      if (isDone) {
+        setCatalog((current) => {
+          if (!cancelToken.cancelled) cacheSet(catalogWithKwKey, current);
+          return current;
+        });
+        setAllKeywords((current) => {
+          if (!cancelToken.cancelled) cacheSet(allKeywordsKey, current);
+          return current;
+        });
+      }
+    };
+
     (async () => {
-      const cachedWithKw = await cacheGet<Title[]>('antiflix_catalog_with_kw');
-      const cachedKwList = await cacheGet<string[]>('antiflix_all_keywords');
+      const cachedWithKw = await cacheGet<Title[]>(catalogWithKwKey);
+      const cachedKwList = await cacheGet<string[]>(allKeywordsKey);
+      if (cancelToken.cancelled) return;
 
       if (cachedWithKw && cachedWithKw.length > 0 && cachedKwList) {
         setCatalog(cachedWithKw);
         setAllKeywords(cachedKwList);
-        cachedWithKw.forEach((t) => fetchedKeywordsRef.current.add(t.id));
+        cachedWithKw.forEach((t) => fetchedIds.add(t.id));
         setTitleProgress({ loaded: cachedWithKw.length, total: cachedWithKw.length, done: true });
         setKwProgress({ fetched: cachedWithKw.length, total: cachedWithKw.length, done: true });
         setCheckingCache(false);
@@ -190,40 +196,51 @@ export default function Browse({
       // No enriched cache — fetch from TMDB
       const seenIds = new Set<string>();
 
-      fetchFullCatalog(region, ({ movies, tv, done, totalEstimated }) => {
-        // Deduplicate by mediaType + id
-        const all = [...movies, ...tv];
-        const deduped: Title[] = [];
-        const keys = new Set<string>();
-        for (const t of all) {
-          const key = `${t.mediaType}_${t.id}`;
-          if (!keys.has(key)) {
-            keys.add(key);
-            deduped.push(t);
-          }
-        }
-        setCatalog(deduped);
-        setTitleProgress({ loaded: deduped.length, total: totalEstimated, done });
+      try {
+        await fetchFullCatalog(
+          region,
+          platformInfo.providerId,
+          ({ movies, tv, done, totalEstimated }) => {
+            if (cancelToken.cancelled) return;
+            // Deduplicate by mediaType + id
+            const all = [...movies, ...tv];
+            const deduped: Title[] = [];
+            const keys = new Set<string>();
+            for (const t of all) {
+              const key = `${t.mediaType}_${t.id}`;
+              if (!keys.has(key)) {
+                keys.add(key);
+                deduped.push(t);
+              }
+            }
+            setCatalog(deduped);
+            setTitleProgress({ loaded: deduped.length, total: totalEstimated, done });
 
-        const newTitles = deduped.filter((t) => !seenIds.has(`${t.mediaType}_${t.id}`));
-        newTitles.forEach((t) => seenIds.add(`${t.mediaType}_${t.id}`));
+            const newTitles = deduped.filter((t) => !seenIds.has(`${t.mediaType}_${t.id}`));
+            newTitles.forEach((t) => seenIds.add(`${t.mediaType}_${t.id}`));
 
-        if (newTitles.length > 0) {
-          pendingKeywordTitlesRef.current.push(...newTitles);
-          setKwProgress((prev) => ({ ...prev, total: seenIds.size }));
-          processKeywordQueue();
-        }
+            if (newTitles.length > 0) {
+              pendingQueue.push(...newTitles);
+              setKwProgress((prev) => ({ ...prev, total: seenIds.size }));
+              processKeywordQueue();
+            }
 
-        if (done && deduped.length === 0) {
-          setKwProgress({ fetched: 0, total: 0, done: true });
-        }
-      });
+            if (done && deduped.length === 0) {
+              setKwProgress({ fetched: 0, total: 0, done: true });
+            }
+          },
+          controller.signal,
+        );
+      } catch (err) {
+        if (!isAbortError(err)) console.error('fetchFullCatalog error', err);
+      }
     })();
 
     return () => {
-      kwCancelledRef.current = true;
+      cancelToken.cancelled = true;
+      controller.abort();
     };
-  }, [region, processKeywordQueue]);
+  }, [region, platformInfo.providerId, catalogWithKwKey, allKeywordsKey]);
 
   useEffect(() => {
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
@@ -377,6 +394,7 @@ export default function Browse({
       <LoadingOverlay
         titleProgress={titleProgress}
         region={region}
+        platformLabel={platformInfo.label}
         hidden={checkingCache}
       />
 
@@ -395,14 +413,15 @@ export default function Browse({
           className="w-full bg-bg border border-border rounded-lg px-4 py-3 text-sm font-body text-white placeholder-muted focus:outline-none focus:border-accent mt-4"
         />
 
-        {/* Status stats */}
-        <div className="flex flex-wrap gap-x-4 gap-y-1 py-2 text-[11px] font-mono">
-          <span className="text-muted">{catalog.length} títulos</span>
+        {/* Status stats (restricted to current platform catalog) */}
+        <div className="flex flex-wrap gap-x-4 gap-y-1 py-2 text-[11px] font-mono items-center">
+          <span className="text-muted">{catalog.length} títulos en {platformInfo.label}</span>
           <span className="text-muted/50">·</span>
           {(() => {
             const counts = { pending: 0, watching: 0, finished: 0, dropped: 0, ignored: 0 };
-            for (const s of watchMap.values()) {
-              if (s in counts) counts[s as keyof typeof counts]++;
+            for (const t of catalog) {
+              const s = watchMap.get(t.id);
+              if (s && s in counts) counts[s as keyof typeof counts]++;
             }
             return (
               <>
@@ -414,6 +433,12 @@ export default function Browse({
               </>
             );
           })()}
+          <button
+            onClick={() => setShowStats(true)}
+            className="ml-auto text-muted hover:text-accent border border-border hover:border-accent rounded px-2 py-0.5 transition"
+          >
+            📊 Estadísticas
+          </button>
         </div>
 
         <FilterToolbar
@@ -476,6 +501,15 @@ export default function Browse({
         onClose={() => setShowImport(false)}
         catalog={catalog}
         onSetStatusBatch={onSetStatusBatch}
+      />
+
+      <StatsModal
+        isOpen={showStats}
+        onClose={() => setShowStats(false)}
+        region={region}
+        activePlatform={platform}
+        activeCatalog={catalog}
+        watchMap={watchMap}
       />
 
       <TitleDetailModal
